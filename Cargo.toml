@@ -1,0 +1,27 @@
+[package]
+name = "cube-rs"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "cube_rs"
+# cdylib for the APK, lib for host tests.
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+# Same version as android-activity.
+jni = "0.21"
+log = "0.4"
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.15"
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "android-native-activity"] }
+ndk-context = "0.1"
+winit = { version = "0.30", default-features = false }
+
+[dev-dependencies]
+jni = { version = "0.21", features = ["invocation"] }
+
+[profile.release]
+lto = true
+strip = true

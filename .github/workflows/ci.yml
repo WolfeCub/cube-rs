@@ -1,0 +1,64 @@
+name: CI
+
+on: push
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: nixbuild/nix-quick-install-action@v35
+        with:
+          nix_conf: |
+            experimental-features = nix-command flakes
+            keep-env-derivations = true
+            keep-outputs = true
+
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix', 'Cargo.lock', '.github/workflows/ci.yml') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size: 0
+
+      # Out-links are GC roots for the cache step:
+      #   apk           the app, SDK, NDK and toolchain
+      #   flake-inputs  nixpkgs and the other input sources
+      - name: Build
+        run: |
+          nix flake check -L
+          nix build .#apk -L
+          nix build .#flake-inputs -o "$RUNNER_TEMP/flake-inputs"
+
+      # Only a VERSION without a release gets published.
+      - name: Is the version already released?
+        id: release
+        if: github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(cat VERSION)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sign and release
+        if: steps.release.outputs.version && !steps.release.outputs.exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          version=${{ steps.release.outputs.version }}
+          apk="cube-rs-$version.apk"
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+          nix run .#sign -- "$RUNNER_TEMP/release.jks" "$apk" --ks-pass env:KEYSTORE_PASSWORD
+          gh release create "v$version" "$apk" --generate-notes

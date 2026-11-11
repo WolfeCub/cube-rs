@@ -1,0 +1,7 @@
+/target
+result*
+*.apk
+*.idsig
+*.keystore
+*.jks
+.direnv

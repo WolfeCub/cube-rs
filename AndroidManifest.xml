@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Version and SDK levels are set by aapt2 in flake.nix. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.wolfecub.cube_rs">
+
+    <!-- hasCode loads classes.dex (TNoodle). -->
+    <application
+        android:label="cube-rs"
+        android:hasCode="true"
+        android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+
+        <activity
+            android:name="android.app.NativeActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|uiMode">
+            <meta-data android:name="android.app.lib_name" android:value="cube_rs" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

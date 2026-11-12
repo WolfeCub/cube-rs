@@ -1,3 +1,4 @@
+use crate::sensors::{Sensors, now};
 use crate::session::{Penalty, Session, Solve, Time};
 use crate::timer::Timer;
 use crate::tnoodle::Scramble;
@@ -5,13 +6,13 @@ use eframe::egui::{
     self, Align2, Button, Color32, FontId, Frame, Image, RichText, Sense, Theme, Vec2,
 };
 use std::sync::mpsc::Receiver;
-use std::time::Instant;
 
 const BG: Color32 = Color32::from_rgb(0x12, 0x12, 0x14);
 const TEXT: Color32 = Color32::from_rgb(0xe8, 0xe8, 0xea);
 const MUTED: Color32 = Color32::from_rgb(0x80, 0x80, 0x88);
 const RED: Color32 = Color32::from_rgb(0xef, 0x6b, 0x6b);
 const GREEN: Color32 = Color32::from_rgb(0x5c, 0xd6, 0x8a);
+const DIM: Color32 = Color32::from_gray(0x40);
 /// Space for the status and navigation bars (edge-to-edge on Android 15+).
 const TOP_INSET: f32 = 48.0;
 const BOTTOM_INSET: f32 = 32.0;
@@ -23,12 +24,14 @@ pub struct App {
     session: Session,
     scrambles: Receiver<Scramble>,
     scramble: Option<Scramble>,
-    epoch: Instant,
+    sensors: Sensors,
     down: bool,
+    /// The last solve is on screen, so it can be penalised or discarded.
+    last_shown: bool,
 }
 
 impl App {
-    pub fn new(ctx: &egui::Context, scrambles: Receiver<Scramble>) -> Self {
+    pub fn new(ctx: &egui::Context, scrambles: Receiver<Scramble>, sensors: Sensors) -> Self {
         egui_extras::install_image_loaders(ctx);
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill = BG;
@@ -42,43 +45,47 @@ impl App {
             session: Session::default(),
             scrambles,
             scramble: None,
-            epoch: Instant::now(),
+            sensors,
             down: false,
+            last_shown: false,
         }
     }
 
-    fn now(&self) -> u64 {
-        self.epoch.elapsed().as_nanos() as u64
-    }
-
-    fn touch(&mut self, down: bool) {
-        let now = self.now();
-        if !down {
-            self.timer.release(now);
-        } else if let Some(ms) = self.timer.press(now) {
+    fn record(&mut self, solve: Option<u64>) {
+        if let Some(ms) = solve {
             let scramble = self.scramble.take().map(|s| s.moves).unwrap_or_default();
             self.session.solves.push(Solve {
                 ms,
                 penalty: Penalty::None,
                 scramble,
             });
+            self.last_shown = true;
+        }
+    }
+
+    fn touch(&mut self, down: bool) {
+        if down {
+            let solve = self.timer.press(now());
+            self.record(solve);
+        } else {
+            self.timer.release(now());
         }
     }
 
     fn timer_text(&self) -> (String, Color32) {
-        let now = self.now();
-        match self.timer {
-            Timer::Idle => match self.session.solves.last() {
-                Some(solve) => (solve.time().to_string(), TEXT),
-                None => ("0.00".into(), TEXT),
-            },
-            Timer::Holding { .. } if self.timer.ready(now) => ("0.00".into(), GREEN),
-            Timer::Holding { .. } => ("0.00".into(), RED),
-            Timer::Running { .. } => (
-                Time::Ms(self.timer.elapsed_ms(now).unwrap()).to_string(),
-                TEXT,
-            ),
-        }
+        let now = now();
+        let last = self.session.solves.last().filter(|_| self.last_shown);
+        let time = if self.timer.idle() {
+            last.map(Solve::time)
+        } else {
+            self.timer.elapsed_ms(now).map(Time::Ms)
+        };
+        let color = match self.timer {
+            Timer::Holding { .. } if self.timer.ready(now) => GREEN,
+            Timer::Holding { .. } => RED,
+            _ => TEXT,
+        };
+        (time.map_or("0.00".into(), |t| t.to_string()), color)
     }
 
     fn scramble(&self, ui: &mut egui::Ui) {
@@ -92,7 +99,7 @@ impl App {
 
     /// Penalty and discard buttons for the last solve.
     fn last_solve(&mut self, ui: &mut egui::Ui) {
-        let Some(last) = self.session.solves.last_mut() else {
+        let Some(last) = self.session.solves.last_mut().filter(|_| self.last_shown) else {
             return;
         };
         let penalties = [
@@ -111,6 +118,7 @@ impl App {
         });
         if discard {
             self.session.solves.pop();
+            self.last_shown = false;
         }
         ui.add_space(24.0);
     }
@@ -176,8 +184,14 @@ impl eframe::App for App {
             self.scramble = Some(scramble);
         }
 
+        self.sensors.set_active(ui.input(|i| i.focused));
+        while let Some(gesture) = self.sensors.gesture() {
+            let solve = self.timer.gesture(gesture);
+            self.record(solve);
+        }
+
         // Only the timer is shown from the first touch until the solve stops.
-        if self.timer == Timer::Idle {
+        if self.timer.idle() {
             let frame = Frame::NONE
                 .fill(BG)
                 .inner_margin(egui::Margin::symmetric(24, 0));
@@ -212,9 +226,17 @@ impl eframe::App for App {
                 FontId::monospace(80.0),
                 color,
             );
+            // Lit while a slam would stop the timer.
+            let now = now();
+            if self.timer.elapsed_ms(now).is_some() {
+                let armed = self.timer.slam_armed(now, self.sensors.steady_since());
+                let color = if armed { GREEN } else { DIM };
+                ui.painter()
+                    .circle_filled(center + Vec2::new(0.0, 72.0), 6.0, color);
+            }
         });
 
-        if self.timer != Timer::Idle || self.scramble.is_none() {
+        if !self.timer.idle() || self.scramble.is_none() {
             ui.ctx().request_repaint();
         }
     }

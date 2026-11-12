@@ -1,4 +1,4 @@
-use crate::{tnoodle::Tnoodle, ui::App};
+use crate::{sensors::Sensors, tnoodle::Tnoodle, ui::App};
 use winit::platform::android::activity::{AndroidApp, WindowManagerFlags};
 
 #[unsafe(no_mangle)]
@@ -22,7 +22,11 @@ fn android_main(app: AndroidApp) {
     eframe::run_native(
         "cube-rs",
         options,
-        Box::new(|cc| Ok(Box::new(App::new(&cc.egui_ctx, scrambles)))),
+        Box::new(|cc| {
+            let ctx = cc.egui_ctx.clone();
+            let sensors = Sensors::start(move || ctx.request_repaint());
+            Ok(Box::new(App::new(&cc.egui_ctx, scrambles, sensors)))
+        }),
     )
     .unwrap();
 }

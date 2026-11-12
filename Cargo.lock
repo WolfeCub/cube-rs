@@ -322,8 +322,11 @@ dependencies = [
  "eframe",
  "egui_extras",
  "jni 0.21.1",
+ "libc",
  "log",
+ "ndk",
  "ndk-context",
+ "ndk-sys",
  "winit",
 ]
 

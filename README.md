@@ -7,6 +7,9 @@ Scrambles come from the official WCA scrambler, [tnoodle-lib](https://github.com
 
 Hold the screen until the time turns green, release to start, touch to stop.
 
+Hands-free, with the phone flat on the table: rest the cube on the proximity sensor at the
+top of the screen until the time turns green, pick it up to start, and slam the table to stop.
+
 ## Development
 
 ```sh

@@ -75,13 +75,14 @@ impl Tnoodle {
         thread::spawn(move || {
             let mut env = self.vm.attach_current_thread_permanently().unwrap();
             let puzzle = scrambler(&mut env, &self.class_loader, puzzle).unwrap();
-            while tx
-                .send(
-                    env.with_local_frame(8, |env| scramble(env, &puzzle))
-                        .unwrap(),
-                )
-                .is_ok()
-            {}
+            loop {
+                let scramble = env
+                    .with_local_frame(8, |env| scramble(env, &puzzle))
+                    .unwrap();
+                if tx.send(scramble).is_err() {
+                    return;
+                }
+            }
         });
         rx
     }

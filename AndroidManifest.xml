@@ -6,6 +6,7 @@
     <!-- hasCode loads classes.dex (TNoodle). -->
     <application
         android:label="cube-rs"
+        android:icon="@mipmap/ic_launcher"
         android:hasCode="true"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
 

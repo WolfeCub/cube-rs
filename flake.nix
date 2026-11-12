@@ -86,7 +86,8 @@
 
     # Unsigned; see `sign`.
     apk = pkgs.runCommand "cube-rs-${version}" {nativeBuildInputs = [jdk pkgs.zip];} ''
-      ${bin}/aapt2 link -o app.apk -I ${androidJar} --manifest ${./AndroidManifest.xml} \
+      ${bin}/aapt2 compile --dir ${./res} -o res.zip
+      ${bin}/aapt2 link -o app.apk -I ${androidJar} --manifest ${./AndroidManifest.xml} -R res.zip \
         --min-sdk-version ${minSdk} --target-sdk-version ${targetSdk} \
         --version-code ${toString versionCode} --version-name ${version}
       ${bin}/d8 --release --min-api ${minSdk} --lib ${androidJar} --output . ${toString tnoodleJars}

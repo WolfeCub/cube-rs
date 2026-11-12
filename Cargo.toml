@@ -16,10 +16,12 @@ log = "0.4"
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"
 eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "android-native-activity"] }
+egui_extras = { version = "0.37", default-features = false, features = ["svg"] }
 ndk-context = "0.1"
 winit = { version = "0.30", default-features = false }
 
-[dev-dependencies]
+# Starts a JVM on the host.
+[target.'cfg(not(target_os = "android"))'.dependencies]
 jni = { version = "0.21", features = ["invocation"] }
 
 [profile.release]

@@ -3,6 +3,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.wolfecub.cube_rs">
 
+    <!-- Sensors above 200 Hz. -->
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+    <!-- Solve traces. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <!-- hasCode loads classes.dex (TNoodle). -->
     <application
         android:label="cube-rs"

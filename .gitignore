@@ -5,3 +5,5 @@ result*
 *.keystore
 *.jks
 .direnv
+# Solve traces pulled from the phone (`nix run .#traces pull`).
+/traces

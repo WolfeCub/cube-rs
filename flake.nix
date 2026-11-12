@@ -130,6 +130,20 @@
       '';
     };
 
+    # traces pull [DIR] | traces clear: the solve traces on the device (src/trace.rs).
+    traces = pkgs.writeShellApplication {
+      name = "traces";
+      runtimeInputs = [androidsdk];
+      text = ''
+        dir=/sdcard/Android/data/io.github.wolfecub.cube_rs/files/traces
+        case ''${1-} in
+          pull) adb pull "$dir" "''${2:-.}" ;;
+          clear) adb shell rm -rf "$dir" ;;
+          *) echo "usage: traces pull [DIR] | traces clear" >&2 && exit 1 ;;
+        esac
+      '';
+    };
+
     hostEnv = {
       JAVA_HOME = jdk.home;
       TNOODLE_CLASSPATH = lib.concatStringsSep ":" tnoodleJars;
@@ -149,7 +163,7 @@
   in {
     packages.${system} = {
       default = apk;
-      inherit apk native sign install ci;
+      inherit apk native sign install traces ci;
     };
 
     checks.${system} = {inherit test;};

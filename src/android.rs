@@ -1,4 +1,4 @@
-use crate::{sensors::Sensors, tnoodle::Tnoodle, ui::App};
+use crate::{microphone, sensors::Sensors, tnoodle::Tnoodle, trace::Tracer, ui::App};
 use winit::platform::android::activity::{AndroidApp, WindowManagerFlags};
 
 #[unsafe(no_mangle)]
@@ -15,6 +15,14 @@ fn android_main(app: AndroidApp) {
         WindowManagerFlags::empty(),
     );
     let scrambles = Tnoodle::android().scrambles("THREE");
+    // External so `adb pull` can read it without a debuggable build.
+    let tracer = app
+        .external_data_path()
+        .map_or_else(Tracer::default, |dir| Tracer::new(dir.join("traces")));
+    microphone::start(tracer.clone());
+    let settings = app
+        .internal_data_path()
+        .map(|dir| dir.join("settings.json"));
     let options = eframe::NativeOptions {
         android_app: Some(app),
         ..Default::default()
@@ -24,8 +32,9 @@ fn android_main(app: AndroidApp) {
         options,
         Box::new(|cc| {
             let ctx = cc.egui_ctx.clone();
-            let sensors = Sensors::start(move || ctx.request_repaint());
-            Ok(Box::new(App::new(&cc.egui_ctx, scrambles, sensors)))
+            let sensors = Sensors::start(move || ctx.request_repaint(), tracer.clone());
+            let app = App::new(&cc.egui_ctx, scrambles, sensors, tracer, settings);
+            Ok(Box::new(app))
         }),
     )
     .unwrap();

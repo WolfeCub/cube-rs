@@ -21,21 +21,23 @@ jobs:
             experimental-features = nix-command flakes
             keep-env-derivations = true
             keep-outputs = true
+            max-jobs = auto
 
       - uses: nix-community/cache-nix-action@v7
         with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix', 'Cargo.lock', '.github/workflows/ci.yml') }}
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix', 'rust-toolchain.toml', 'Cargo.lock', '.github/workflows/ci.yml') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
           gc-max-store-size: 0
 
-      # Out-links are GC roots for the cache step:
-      #   apk           the app, SDK, NDK and toolchain
-      #   flake-inputs  nixpkgs and the other input sources
+      # The APK and tests build in parallel. The out-link is the cache step's GC root:
+      #   ci/apk     the app, SDK, NDK, toolchain and Android deps
+      #   ci/test    host tests and their deps
+      #   ci/inputs  nixpkgs and the other input sources
+      # The flake check then only evaluates: everything is already built.
       - name: Build
         run: |
-          nix flake check -L
-          nix build .#apk -L
-          nix build .#flake-inputs -o "$RUNNER_TEMP/flake-inputs"
+          nix build .#ci -L -o "$RUNNER_TEMP/ci"
+          nix flake check
 
       # Only a VERSION without a release gets published.
       - name: Is the version already released?

@@ -26,7 +26,9 @@
     };
     inherit (pkgs) lib jdk;
 
-    craneLib = (crane.mkLib pkgs).overrideToolchain (p: p.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml);
+    # Minimal; the dev shell adds the tools.
+    rust = p: p.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+    craneLib = (crane.mkLib pkgs).overrideToolchain rust;
 
     version = lib.fileContents ./VERSION;
     versionCode = lib.foldl (code: n: code * 100 + lib.toInt n) 0 (lib.splitString "." version);
@@ -81,8 +83,10 @@
           CARGO_BUILD_TARGET = "aarch64-linux-android";
           doCheck = false;
         };
+      # Skips crane's `cargo check` pass: its .rmeta only serves clippy, which isn't run here.
+      deps = craneLib.buildDepsOnly (args // {buildPhaseCargoCommand = "cargoWithProfile build --locked";});
     in
-      craneLib.buildPackage (args // {cargoArtifacts = craneLib.buildDepsOnly args;});
+      craneLib.buildPackage (args // {cargoArtifacts = deps;});
 
     # Unsigned; see `sign`.
     apk = pkgs.runCommand "cube-rs-${version}" {nativeBuildInputs = [jdk pkgs.zip];} ''
@@ -131,27 +135,34 @@
       TNOODLE_CLASSPATH = lib.concatStringsSep ":" tnoodleJars;
     };
 
-    test = craneLib.cargoTest (common
-      // hostEnv
-      // {
-        cargoArtifacts = craneLib.buildDepsOnly (common // hostEnv);
-      });
+    # Dev profile: no LTO or optimisation for tests.
+    test = let
+      args = common // hostEnv // {CARGO_PROFILE = "dev";};
+    in
+      craneLib.cargoTest (args // {cargoArtifacts = craneLib.buildDepsOnly args;});
 
-    # Keeps every input's source alive through CI's store GC.
-    flake-inputs = pkgs.linkFarm "flake-inputs" self.inputs;
+    # Everything CI builds, as one GC root for its cache. `inputs` keeps nixpkgs and the other sources.
+    ci = pkgs.linkFarm "ci" {
+      inherit apk test;
+      inputs = pkgs.linkFarm "inputs" self.inputs;
+    };
   in {
     packages.${system} = {
       default = apk;
-      inherit apk native sign install flake-inputs;
+      inherit apk native sign install ci;
     };
 
     checks.${system} = {inherit test;};
 
-    devShells.${system}.default = craneLib.devShell (linker
+    devShells.${system}.default = pkgs.mkShell (linker
       // hostEnv
       // {
         ANDROID_HOME = sdk;
-        packages = [jdk androidsdk];
+        packages = [
+          ((rust pkgs).override {extensions = ["clippy" "rustfmt" "rust-src" "rust-analyzer"];})
+          jdk
+          androidsdk
+        ];
       });
   };
 }

@@ -11,12 +11,17 @@ use std::{mem, ptr, thread};
 
 /// Nanoseconds on the sensor event clock.
 pub fn now() -> u64 {
+    clock(libc::CLOCK_BOOTTIME) as u64
+}
+
+/// Nanoseconds on clock `id`.
+pub fn clock(id: libc::clockid_t) -> i64 {
     let mut t = libc::timespec {
         tv_sec: 0,
         tv_nsec: 0,
     };
-    unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut t) };
-    t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
+    unsafe { libc::clock_gettime(id, &mut t) };
+    t.tv_sec * 1_000_000_000 + t.tv_nsec
 }
 
 pub struct Sensors {

@@ -187,9 +187,7 @@ mod tests {
 
     #[test]
     fn saves_changes() {
-        let pid = std::process::id();
-        let path = std::env::temp_dir().join(format!("cube-rs-session-{pid}.jsonl"));
-        let _ = std::fs::remove_file(&path);
+        let path = crate::test_path("session");
         let mut s = Session::open(&path);
         s.push(Solve::new(10_000, "R U".into()));
         s.push(Solve::new(12_000, "F2".into()));

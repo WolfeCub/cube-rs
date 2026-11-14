@@ -1,6 +1,7 @@
 //! Microphone capture for traces, through AAudio. The app doesn't ask for `RECORD_AUDIO`:
 //! grant it in the app's settings or with `adb shell pm grant`.
 
+use crate::sensors::clock;
 use crate::trace::Tracer;
 use ndk::audio::{
     AudioDirection, AudioFormat, AudioPerformanceMode, AudioStream, AudioStreamBuilder, Clockid,
@@ -72,13 +73,4 @@ fn captured(stream: &AudioStream) -> ndk::audio::Result<(u64, u64)> {
     let boot = clock(libc::CLOCK_BOOTTIME) - clock(libc::CLOCK_MONOTONIC);
     let t = captured.time_nanoseconds + boot;
     Ok((captured.frame_position as u64, t as u64))
-}
-
-fn clock(id: libc::clockid_t) -> i64 {
-    let mut t = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    unsafe { libc::clock_gettime(id, &mut t) };
-    t.tv_sec * 1_000_000_000 + t.tv_nsec
 }

@@ -9,8 +9,8 @@ name = "cube_rs"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-# Same version as android-activity.
-jni = "0.21"
+# Same version as android-activity, which sets JavaVM::singleton().
+jni = "0.22"
 log = "0.4"
 # Settings as JSON. No dependencies and no syn, unlike serde.
 nanoserde = { version = "0.2.1", default-features = false, features = ["json"] }
@@ -21,13 +21,12 @@ eframe = { version = "0.37", default-features = false, features = ["glow", "defa
 egui_extras = { version = "0.37", default-features = false, features = ["svg"] }
 libc = "0.2"
 ndk = { version = "0.9", default-features = false, features = ["audio"] }
-ndk-context = "0.1"
 ndk-sys = "0.6"
 winit = { version = "0.30", default-features = false }
 
 # Starts a JVM on the host.
 [target.'cfg(not(target_os = "android"))'.dependencies]
-jni = { version = "0.21", features = ["invocation"] }
+jni = { version = "0.22", features = ["invocation"] }
 
 [profile.release]
 lto = true

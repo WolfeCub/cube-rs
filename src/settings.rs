@@ -18,7 +18,7 @@ pub const SENSITIVITIES: [(&str, f32); 5] = [
 pub const HOLD_MS: [u64; 4] = [100, 300, 500, 1000];
 
 /// Missing fields take the default given here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, DeJson, SerJson)]
+#[derive(Debug, Clone, PartialEq, Eq, DeJson, SerJson)]
 pub struct Settings {
     /// A slam stops the timer.
     #[nserde(default = "true")]
@@ -35,6 +35,9 @@ pub struct Settings {
     /// Ask how each solve stopped. Needs tracing.
     #[nserde(default = "false")]
     pub questions: bool,
+    /// The open session's name.
+    #[nserde(default = "Default")]
+    pub session: String,
 }
 
 impl Default for Settings {
@@ -77,6 +80,7 @@ mod tests {
             hold_ms: 1000,
             tracing: true,
             questions: true,
+            session: "OH".into(),
         };
         assert_eq!(Settings::deserialize_json(&s.serialize_json()).unwrap(), s);
     }

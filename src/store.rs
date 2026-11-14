@@ -75,14 +75,6 @@ fn parse(line: &[u8]) -> Option<Solve> {
 mod tests {
     use super::*;
     use crate::session::Penalty;
-    use std::path::PathBuf;
-
-    fn path(name: &str) -> PathBuf {
-        let pid = std::process::id();
-        let path = std::env::temp_dir().join(format!("cube-rs-{name}-{pid}.jsonl"));
-        let _ = fs::remove_file(&path);
-        path
-    }
 
     fn ms(solves: &[Solve]) -> Vec<u64> {
         solves.iter().map(|s| s.ms).collect()
@@ -90,7 +82,7 @@ mod tests {
 
     #[test]
     fn keeps_solves() {
-        let path = path("keeps");
+        let path = crate::test_path("keeps");
         let (mut store, solves) = Store::open(&path).unwrap();
         assert!(solves.is_empty());
         store.push(&Solve::new(1000, "R U".into()));
@@ -113,7 +105,7 @@ mod tests {
 
     #[test]
     fn cuts_off_a_partial_line() {
-        let path = path("partial");
+        let path = crate::test_path("partial");
         let (mut store, _) = Store::open(&path).unwrap();
         store.push(&Solve::new(1000, "R U".into()));
         let good = fs::read(&path).unwrap();

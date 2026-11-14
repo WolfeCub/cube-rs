@@ -8,11 +8,12 @@
     <!-- Solve traces. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- hasCode loads classes.dex (TNoodle). -->
+    <!-- hasCode loads classes.dex (TNoodle). Predictive back off, so back arrives as a key. -->
     <application
         android:label="cube-rs"
         android:icon="@mipmap/ic_launcher"
         android:hasCode="true"
+        android:enableOnBackInvokedCallback="false"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
 
         <activity

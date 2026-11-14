@@ -54,10 +54,10 @@ pub enum Record {
 }
 
 /// Keeps recent readings and saves them around each solve. Clones share one trace.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Tracer(Arc<Shared>);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Shared {
     trace: Mutex<Trace>,
     /// Notified when `Trace::listening` may have changed.
@@ -66,7 +66,7 @@ struct Shared {
 
 #[derive(Debug, Default)]
 struct Trace {
-    dir: Option<PathBuf>,
+    dir: PathBuf,
     /// Solves are saved, and the microphone runs for them.
     enabled: bool,
     records: VecDeque<(u64, Record)>,
@@ -105,10 +105,10 @@ struct Save {
 }
 
 impl Tracer {
-    /// Saves a trace of each solve in `dir`. A default tracer saves nothing.
+    /// Saves a trace of each solve in `dir`.
     pub fn new(dir: PathBuf) -> Self {
         let trace = Trace {
-            dir: Some(dir),
+            dir,
             enabled: true,
             ..Default::default()
         };
@@ -158,12 +158,10 @@ impl Tracer {
             (_, Timer::Running { start }) => trace.push(start, Record::Mark(Mark::Start)),
             (Timer::Running { start }, Timer::Stopped { at }) => {
                 trace.push(at, Record::Mark(Mark::Stop));
-                if let Some(dir) = &trace.dir
-                    && trace.enabled
-                {
+                if trace.enabled {
                     let secs = SystemTime::UNIX_EPOCH.elapsed().unwrap_or_default();
                     let ms = (at - start) / MS;
-                    let path = dir.join(format!("{}-{ms}", secs.as_secs()));
+                    let path = trace.dir.join(format!("{}-{ms}", secs.as_secs()));
                     trace.last = Some(path.clone());
                     trace.unsaved = Some(Unsaved {
                         from: start.saturating_sub(LEAD_NS),
@@ -247,7 +245,7 @@ impl Trace {
     /// Starts or stops listening, dropping any audio and its timestamps. Their frames count from
     /// the start of that audio, so they would be wrong for the next.
     fn listen(&mut self, on: bool) {
-        self.listening = on && self.dir.is_some() && self.enabled;
+        self.listening = on && self.enabled;
         self.audio = Audio::default();
         self.records.retain(|(_, r)| !matches!(r, Record::Audio(_)));
     }
@@ -356,7 +354,7 @@ mod tests {
 
     #[test]
     fn saves_each_solve() {
-        let dir = std::env::temp_dir().join(format!("cube-rs-trace-{}", std::process::id()));
+        let dir = crate::test_path("trace");
         let tracer = Tracer::new(dir.clone());
         // Before the trace's lead.
         tracer.reading(0, DOWN);
@@ -443,7 +441,7 @@ mod tests {
 
     #[test]
     fn disabled_saves_nothing() {
-        let dir = std::env::temp_dir().join(format!("cube-rs-off-{}", std::process::id()));
+        let dir = crate::test_path("off");
         let tracer = Tracer::new(dir.clone());
         tracer.set_enabled(false);
         tracer.timer(Timer::Holding { since: 0 });
@@ -459,15 +457,8 @@ mod tests {
     }
 
     #[test]
-    fn default_never_listens() {
-        let tracer = Tracer::default();
-        tracer.timer(Timer::Holding { since: 0 });
-        assert!(!tracer.audio(48_000, 0, &[1], None));
-    }
-
-    #[test]
     fn forgets_old_records() {
-        let tracer = Tracer::default();
+        let tracer = Tracer::new(std::env::temp_dir());
         tracer.reading(0, DOWN);
         tracer.reading(KEEP_NS + 1, DOWN);
         assert_eq!(parse(&tracer.lock().csv(0, u64::MAX)).len(), 1);

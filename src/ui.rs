@@ -64,6 +64,7 @@ impl App {
         scrambles: Receiver<Scramble>,
         sensors: Sensors,
         tracer: Tracer,
+        session: Session,
         settings_path: Option<PathBuf>,
     ) -> Self {
         egui_extras::install_image_loaders(ctx);
@@ -76,7 +77,7 @@ impl App {
 
         let app = Self {
             timer: Timer::default(),
-            session: Session::default(),
+            session,
             scrambles,
             scramble: None,
             sensors,
@@ -104,11 +105,7 @@ impl App {
     fn record(&mut self, solve: Option<u64>) {
         if let Some(ms) = solve {
             let scramble = self.scramble.take().map(|s| s.moves).unwrap_or_default();
-            self.session.solves.push(Solve {
-                ms,
-                penalty: Penalty::None,
-                scramble,
-            });
+            self.session.push(Solve::new(ms, scramble));
             self.last_shown = true;
             self.ask_stop = true;
         }
@@ -125,7 +122,7 @@ impl App {
 
     fn timer_text(&self) -> (String, Color32) {
         let now = now();
-        let last = self.session.solves.last().filter(|_| self.last_shown);
+        let last = self.session.solves().last().filter(|_| self.last_shown);
         let time = if self.timer.idle() {
             last.map(Solve::time)
         } else {
@@ -187,7 +184,7 @@ impl App {
 
     /// Penalty and discard buttons for the last solve.
     fn last_solve(&mut self, ui: &mut egui::Ui) {
-        let Some(last) = self.session.solves.last_mut().filter(|_| self.last_shown) else {
+        let Some(last) = self.session.solves().last().filter(|_| self.last_shown) else {
             return;
         };
         let penalties = [
@@ -195,18 +192,21 @@ impl App {
             (Penalty::PlusTwo, "+2"),
             (Penalty::Dnf, "DNF"),
         ];
-        let mut discard = false;
+        let current = last.penalty;
+        let (mut chosen, mut discard) = (current, false);
         ui.columns(4, |cols| {
             for (ui, (penalty, label)) in cols.iter_mut().zip(penalties) {
-                if button(ui, label, last.penalty == penalty) {
-                    last.penalty = penalty;
+                if button(ui, label, current == penalty) {
+                    chosen = penalty;
                 }
             }
             discard = button(&mut cols[3], "Discard", false);
         });
         if discard {
-            self.session.solves.pop();
+            self.session.pop();
             self.last_shown = false;
+        } else if chosen != current {
+            self.session.set_penalty(chosen);
         }
         ui.add_space(24.0);
     }
@@ -307,7 +307,7 @@ impl App {
 
         ui.add_space(8.0);
         let recent: Vec<String> = s
-            .solves
+            .solves()
             .iter()
             .rev()
             .take(5)

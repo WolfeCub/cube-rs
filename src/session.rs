@@ -1,8 +1,12 @@
 //! Solves, penalties and WCA statistics.
 
+use crate::store::Store;
+use nanoserde::{DeJson, SerJson};
 use std::fmt;
+use std::path::Path;
+use std::time::SystemTime;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, DeJson, SerJson)]
 pub enum Penalty {
     #[default]
     None,
@@ -17,14 +21,30 @@ pub enum Time {
     Dnf,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, DeJson, SerJson)]
 pub struct Solve {
     pub ms: u64,
     pub penalty: Penalty,
     pub scramble: String,
+    /// When it was done, in Unix seconds.
+    pub at: u64,
 }
 
 impl Solve {
+    /// A solve done now.
+    pub fn new(ms: u64, scramble: String) -> Self {
+        let at = SystemTime::UNIX_EPOCH
+            .elapsed()
+            .unwrap_or_default()
+            .as_secs();
+        Self {
+            ms,
+            penalty: Penalty::None,
+            scramble,
+            at,
+        }
+    }
+
     pub fn time(&self) -> Time {
         match self.penalty {
             Penalty::None => Time::Ms(self.ms),
@@ -34,12 +54,54 @@ impl Solve {
     }
 }
 
+/// Solves in order, saved to a `Store` if it has one. Only the last solve can change.
 #[derive(Debug, Default)]
 pub struct Session {
-    pub solves: Vec<Solve>,
+    solves: Vec<Solve>,
+    store: Option<Store>,
 }
 
 impl Session {
+    /// The solves saved in `path`. Changes are saved there too.
+    pub fn open(path: &Path) -> Self {
+        match Store::open(path) {
+            Ok((store, solves)) => Self {
+                solves,
+                store: Some(store),
+            },
+            Err(e) => {
+                log::error!("opening {}: {e}", path.display());
+                Self::default()
+            }
+        }
+    }
+
+    pub fn solves(&self) -> &[Solve] {
+        &self.solves
+    }
+
+    pub fn push(&mut self, solve: Solve) {
+        if let Some(store) = &mut self.store {
+            store.push(&solve);
+        }
+        self.solves.push(solve);
+    }
+
+    pub fn pop(&mut self) -> Option<Solve> {
+        let solve = self.solves.pop()?;
+        if let Some(store) = &mut self.store {
+            store.pop();
+        }
+        Some(solve)
+    }
+
+    /// Sets the last solve's penalty.
+    pub fn set_penalty(&mut self, penalty: Penalty) {
+        if let Some(solve) = self.pop() {
+            self.push(Solve { penalty, ..solve });
+        }
+    }
+
     pub fn best(&self) -> Option<Time> {
         self.solves.iter().map(Solve::time).min()
     }
@@ -80,14 +142,14 @@ mod tests {
     use Penalty::{Dnf, PlusTwo};
 
     fn session(solves: &[(u64, Penalty)]) -> Session {
-        let solves = solves.iter().map(|&(ms, penalty)| Solve {
-            ms,
-            penalty,
-            scramble: String::new(),
-        });
-        Session {
-            solves: solves.collect(),
+        let mut session = Session::default();
+        for &(ms, penalty) in solves {
+            session.push(Solve {
+                penalty,
+                ..Solve::new(ms, String::new())
+            });
         }
+        session
     }
 
     #[test]
@@ -121,6 +183,22 @@ mod tests {
             (10_000, ok),
         ]);
         assert_eq!(s.average(5), Some(Time::Dnf));
+    }
+
+    #[test]
+    fn saves_changes() {
+        let pid = std::process::id();
+        let path = std::env::temp_dir().join(format!("cube-rs-session-{pid}.jsonl"));
+        let _ = std::fs::remove_file(&path);
+        let mut s = Session::open(&path);
+        s.push(Solve::new(10_000, "R U".into()));
+        s.push(Solve::new(12_000, "F2".into()));
+        s.set_penalty(PlusTwo);
+        s.push(Solve::new(9_000, "D'".into()));
+        s.pop();
+        assert_eq!(s.solves[1].time(), Time::Ms(14_000));
+        assert_eq!(Session::open(&path).solves, s.solves);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

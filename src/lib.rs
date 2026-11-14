@@ -1,6 +1,7 @@
 pub mod gesture;
 pub mod session;
 pub mod settings;
+pub mod store;
 pub mod timer;
 pub mod tnoodle;
 pub mod trace;

@@ -14,6 +14,8 @@ mod microphone;
 #[cfg(target_os = "android")]
 mod sensors;
 #[cfg(target_os = "android")]
+mod sys;
+#[cfg(target_os = "android")]
 mod ui;
 
 /// A temp path for test `name` with nothing at it.

@@ -4,8 +4,8 @@ use super::sessions_page::SessionsPage;
 use super::solves_page::SolvesPage;
 use super::widgets::{Chevron, button, chip, cog, page_frame};
 use super::{App, BG, BOTTOM_INSET, DIM, GREEN, MUTED, Page, RED, TEXT, TOP_INSET};
-use crate::sensors::now;
 use crate::session::{Penalty, Solve, Time};
+use crate::sys;
 use crate::timer::Timer;
 use eframe::egui::{self, Align2, Color32, FontId, Frame, Image, RichText, Sense, Stroke, Vec2};
 
@@ -66,7 +66,7 @@ impl App {
                 color,
             );
             // Lit while a slam would stop the timer.
-            let now = now();
+            let now = sys::boottime();
             if self.settings.slam && self.timer.elapsed_ms(now).is_some() {
                 let armed = self.timer.slam_armed(now);
                 let color = if armed { GREEN } else { DIM };
@@ -108,15 +108,15 @@ impl App {
             return;
         }
         if down {
-            let solve = self.timer.press(now());
+            let solve = self.timer.press(sys::boottime());
             self.record(solve);
         } else {
-            self.timer.release(now(), self.settings.hold_ns());
+            self.timer.release(sys::boottime(), self.settings.hold_ns());
         }
     }
 
     fn timer_text(&self) -> (String, Color32) {
-        let now = now();
+        let now = sys::boottime();
         let time = if self.timer.idle() {
             self.shown().map(Solve::time)
         } else {

@@ -9,21 +9,6 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::{mem, ptr, thread};
 
-/// Nanoseconds on the sensor event clock.
-pub fn now() -> u64 {
-    clock(libc::CLOCK_BOOTTIME) as u64
-}
-
-/// Nanoseconds on clock `id`.
-pub fn clock(id: libc::clockid_t) -> i64 {
-    let mut t = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    unsafe { libc::clock_gettime(id, &mut t) };
-    t.tv_sec * 1_000_000_000 + t.tv_nsec
-}
-
 pub struct Sensors {
     slams: Receiver<u64>,
     active: Arc<AtomicBool>,
@@ -98,7 +83,9 @@ impl Sensors {
 }
 
 /// A sensor event queue on the current thread's looper. Missing sensors are null and skipped.
+/// The raw pointers keep it on that thread.
 struct Queue {
+    manager: *mut ffi::ASensorManager,
     queue: *mut ffi::ASensorEventQueue,
     accelerometer: *const ffi::ASensor,
     gyroscope: *const ffi::ASensor,
@@ -106,22 +93,23 @@ struct Queue {
 
 impl Queue {
     fn new(looper: &ThreadLooper) -> Self {
-        unsafe {
-            let manager =
-                ffi::ASensorManager_getInstanceForPackage(c"io.github.wolfecub.cube_rs".as_ptr());
-            let looper = looper.as_foreign().ptr().as_ptr();
-            let sensor = |kind| ffi::ASensorManager_getDefaultSensor(manager, kind);
-            Self {
-                queue: ffi::ASensorManager_createEventQueue(
-                    manager,
-                    looper,
-                    0,
-                    None,
-                    ptr::null_mut(),
-                ),
-                accelerometer: sensor(ffi::ASENSOR_TYPE_ACCELEROMETER),
-                gyroscope: sensor(ffi::ASENSOR_TYPE_GYROSCOPE),
-            }
+        let package = c"io.github.wolfecub.cube_rs".as_ptr();
+        // SAFETY: `package` is a C string.
+        let manager = unsafe { ffi::ASensorManager_getInstanceForPackage(package) };
+        assert!(!manager.is_null(), "no sensor manager");
+        let looper = looper.as_foreign().ptr().as_ptr();
+        // SAFETY: `manager` and `looper` are valid, and the null callback and data are allowed.
+        let queue = unsafe {
+            ffi::ASensorManager_createEventQueue(manager, looper, 0, None, ptr::null_mut())
+        };
+        assert!(!queue.is_null(), "no sensor event queue");
+        // SAFETY: `manager` is valid.
+        let sensor = |kind| unsafe { ffi::ASensorManager_getDefaultSensor(manager, kind) };
+        Self {
+            manager,
+            queue,
+            accelerometer: sensor(ffi::ASENSOR_TYPE_ACCELEROMETER),
+            gyroscope: sensor(ffi::ASENSOR_TYPE_GYROSCOPE),
         }
     }
 
@@ -131,16 +119,15 @@ impl Queue {
             if sensor.is_null() {
                 continue;
             }
-            unsafe {
-                if on {
-                    let period = ffi::ASensor_getMinDelay(sensor);
-                    let result =
-                        ffi::ASensorEventQueue_registerSensor(self.queue, sensor, period, 0);
-                    let kind = ffi::ASensor_getType(sensor);
-                    log::info!("sensor {kind} every {period} µs: {result}");
-                } else {
-                    ffi::ASensorEventQueue_disableSensor(self.queue, sensor);
-                }
+            // SAFETY: `queue` and `sensor` are valid and non-null.
+            if on {
+                let period = unsafe { ffi::ASensor_getMinDelay(sensor) };
+                let result =
+                    unsafe { ffi::ASensorEventQueue_registerSensor(self.queue, sensor, period, 0) };
+                let kind = unsafe { ffi::ASensor_getType(sensor) };
+                log::info!("sensor {kind} every {period} µs: {result}");
+            } else {
+                unsafe { ffi::ASensorEventQueue_disableSensor(self.queue, sensor) };
             }
         }
     }
@@ -148,8 +135,10 @@ impl Queue {
     /// Drains the queue.
     fn readings(&self) -> Vec<(u64, Reading)> {
         let mut readings = Vec::new();
+        // SAFETY: all zeros is a valid `ASensorEvent`, a plain C struct.
         let mut events: [ffi::ASensorEvent; 32] = unsafe { mem::zeroed() };
         loop {
+            // SAFETY: `queue` is valid, and `events` holds `events.len()` events.
             let n = unsafe {
                 ffi::ASensorEventQueue_getEvents(self.queue, events.as_mut_ptr(), events.len())
             };
@@ -157,6 +146,7 @@ impl Queue {
                 return readings;
             }
             for event in &events[..n as usize] {
+                // SAFETY: any bits are valid f32s.
                 let data = unsafe { event.__bindgen_anon_1.__bindgen_anon_1.data };
                 let xyz = [data[0], data[1], data[2]];
                 let reading = match event.type_ {
@@ -167,5 +157,12 @@ impl Queue {
                 readings.push((event.timestamp as u64, reading));
             }
         }
+    }
+}
+
+impl Drop for Queue {
+    fn drop(&mut self) {
+        // SAFETY: `queue` came from `manager` and isn't used again.
+        unsafe { ffi::ASensorManager_destroyEventQueue(self.manager, self.queue) };
     }
 }

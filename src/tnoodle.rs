@@ -26,8 +26,7 @@ impl Tnoodle {
     #[cfg(target_os = "android")]
     pub fn android(app: &winit::platform::android::activity::AndroidApp) -> Self {
         Self::new(|env| {
-            // A global ref held by `app`.
-            let activity = unsafe { JObject::from_raw(env, app.activity_as_ptr().cast()) };
+            let activity = crate::android::activity(env, app);
             let loader = env
                 .call_method(
                     &activity,

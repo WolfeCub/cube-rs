@@ -99,12 +99,9 @@ fn halves(moves: &str) -> [String; 2] {
 
 /// `Nov 14, 14:02` in the phone's time zone.
 fn local_time(unix_secs: u64) -> String {
-    let t = unix_secs as libc::time_t;
-    // SAFETY: localtime_r only writes the given `tm`.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    if unsafe { libc::localtime_r(&t, &mut tm) }.is_null() {
+    let Some(tm) = crate::sys::local_time(unix_secs) else {
         return String::new();
-    }
+    };
     let month = MONTHS[tm.tm_mon as usize];
     format!("{month} {}, {:02}:{:02}", tm.tm_mday, tm.tm_hour, tm.tm_min)
 }

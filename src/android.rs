@@ -1,4 +1,6 @@
 use crate::{microphone, sensors::Sensors, tnoodle::Tnoodle, trace::Tracer, ui::App};
+use jni::Env;
+use jni::objects::JObject;
 use winit::platform::android::activity::{AndroidApp, WindowManagerFlags};
 
 #[unsafe(no_mangle)]
@@ -38,4 +40,10 @@ fn android_main(app: AndroidApp) {
         }),
     )
     .unwrap();
+}
+
+/// `app`'s activity.
+pub fn activity<'a>(env: &Env<'a>, app: &'a AndroidApp) -> JObject<'a> {
+    // SAFETY: a global ref, held by `app` while it's borrowed.
+    unsafe { JObject::from_raw(env, app.activity_as_ptr().cast()) }
 }

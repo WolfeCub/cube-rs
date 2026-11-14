@@ -1,7 +1,7 @@
 //! Microphone capture for traces, through AAudio. The app doesn't ask for `RECORD_AUDIO`:
 //! grant it in the app's settings or with `adb shell pm grant`.
 
-use crate::sensors::clock;
+use crate::sys;
 use crate::trace::Tracer;
 use ndk::audio::{
     AudioDirection, AudioFormat, AudioPerformanceMode, AudioStream, AudioStreamBuilder, Clockid,
@@ -42,13 +42,7 @@ fn record(tracer: &Tracer) -> ndk::audio::Result<()> {
     // Timestamps fail until the stream is running; only the first failure is logged.
     let mut failed = false;
     loop {
-        let read = unsafe { stream.read(samples.as_mut_ptr().cast(), CHUNK as i32, TIMEOUT_NS) };
-        let n = match read {
-            Ok(n) => n,
-            // ndk 0.9 returns the frame count as an error.
-            Err(e) if i32::from(e) > 0 => i32::from(e) as u32,
-            Err(e) => return Err(e),
-        };
+        let n = read(&stream, &mut samples)?;
         let captured = match captured(&stream) {
             Ok(captured) => Some(captured),
             Err(e) => {
@@ -59,10 +53,10 @@ fn record(tracer: &Tracer) -> ndk::audio::Result<()> {
                 None
             }
         };
-        if !tracer.audio(rate, frame, &samples[..n as usize], captured) {
+        if !tracer.audio(rate, frame, &samples[..n], captured) {
             return stream.request_stop();
         }
-        frame += u64::from(n);
+        frame += n as u64;
     }
 }
 
@@ -70,7 +64,22 @@ fn record(tracer: &Tracer) -> ndk::audio::Result<()> {
 /// `CLOCK_MONOTONIC`, which AAudio's input streams may only support.
 fn captured(stream: &AudioStream) -> ndk::audio::Result<(u64, u64)> {
     let captured = stream.timestamp(Clockid::Monotonic)?;
-    let boot = clock(libc::CLOCK_BOOTTIME) - clock(libc::CLOCK_MONOTONIC);
-    let t = captured.time_nanoseconds + boot;
-    Ok((captured.frame_position as u64, t as u64))
+    let t = captured.time_nanoseconds as u64 + (sys::boottime() - sys::monotonic());
+    Ok((captured.frame_position as u64, t))
+}
+
+/// Reads up to `samples.len()` samples, returning how many were read.
+fn read(stream: &AudioStream, samples: &mut [i16]) -> ndk::audio::Result<usize> {
+    assert_eq!(stream.format(), AudioFormat::PCM_I16);
+    let channels = stream.channel_count() as usize;
+    let frames = (samples.len() / channels) as i32;
+    // SAFETY: `samples` holds `frames` frames of i16 samples.
+    let read = unsafe { stream.read(samples.as_mut_ptr().cast(), frames, TIMEOUT_NS) };
+    let frames = match read {
+        Ok(n) => n,
+        // ndk 0.9 returns the frame count as an error.
+        Err(e) if i32::from(e) > 0 => i32::from(e) as u32,
+        Err(e) => return Err(e),
+    };
+    Ok(frames as usize * channels)
 }

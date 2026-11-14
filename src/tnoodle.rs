@@ -3,6 +3,7 @@
 use jni::errors::Result;
 use jni::objects::{JClassLoader, JObject, JString, JValue};
 use jni::refs::Global;
+use jni::strings::JNIStr;
 use jni::{Env, JavaVM, jni_sig, jni_str};
 use std::sync::mpsc::{Receiver, Sender, channel, sync_channel};
 use std::thread;
@@ -159,15 +160,7 @@ fn scrambler<'a>(env: &mut Env<'a>, loader: &JClassLoader, puzzle: &str) -> Resu
 }
 
 fn scramble(env: &mut Env, puzzle: &JObject) -> Result<Scramble> {
-    let moves = env
-        .call_method(
-            puzzle,
-            jni_str!("generateScramble"),
-            jni_sig!(() -> java.lang.String),
-            &[],
-        )?
-        .l()?;
-    let moves = env.cast_local::<JString>(moves)?.try_to_string(env)?;
+    let moves = string(env, puzzle, jni_str!("generateScramble"))?;
     let svg = draw(env, puzzle, &moves)?;
     Ok(Scramble { moves, svg })
 }
@@ -185,15 +178,15 @@ fn draw(env: &mut Env, puzzle: &JObject, moves: &str) -> Result<String> {
             &[JValue::Object(&moves), JValue::Object(&JObject::null())],
         )?
         .l()?;
-    let svg = env
-        .call_method(
-            &svg,
-            jni_str!("toString"),
-            jni_sig!(() -> java.lang.String),
-            &[],
-        )?
+    string(env, &svg, jni_str!("toString"))
+}
+
+/// Calls `obj.method()`, which returns a string.
+fn string(env: &mut Env, obj: &JObject, method: &JNIStr) -> Result<String> {
+    let s = env
+        .call_method(obj, method, jni_sig!(() -> java.lang.String), &[])?
         .l()?;
-    env.cast_local::<JString>(svg)?.try_to_string(env)
+    env.cast_local::<JString>(s)?.try_to_string(env)
 }
 
 #[cfg(test)]

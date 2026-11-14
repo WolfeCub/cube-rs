@@ -71,7 +71,7 @@ impl SolvesPage {
             Penalty::PlusTwo => format!("{}+", solve.time()),
             _ => solve.time().to_string(),
         };
-        let font = |size| FontId::proportional(size);
+        let font = FontId::proportional;
         painter.text(pos2(left, top), Align2::LEFT_TOP, time, font(22.0), TEXT);
         let when = format!("#{n} · {}", local_time(solve.at));
         let right = pos2(rect.right(), top + 4.0);

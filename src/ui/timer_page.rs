@@ -44,7 +44,7 @@ impl App {
                     self.last_solve(ui);
                     self.summary(ui);
                 });
-            self.corners(&ui.ctx().clone());
+            self.corners(ui.ctx());
         }
 
         egui::CentralPanel::default().show(ui, |ui| {
@@ -74,7 +74,7 @@ impl App {
                     .circle_filled(center + Vec2::new(0.0, 72.0), 6.0, color);
             }
         });
-        self.stop_questions(&ui.ctx().clone());
+        self.stop_questions(ui.ctx());
     }
 
     /// Takes the next scramble once the last one is used.

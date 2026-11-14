@@ -4,6 +4,7 @@ use super::MUTED;
 use super::widgets::{button, title};
 use crate::sessions::Sessions;
 use eframe::egui::{self, Button, RichText, ScrollArea, TextEdit, Vec2};
+use std::mem;
 
 /// The sessions page's state while it's open.
 #[derive(Default)]
@@ -55,18 +56,21 @@ impl SessionsPage {
             }
         });
 
-        if let Some(tap) = tap {
-            match &tap {
-                Tap::New => sessions.switch(&typed),
-                Tap::Rename => sessions.rename(&typed),
-                Tap::Delete if self.confirm_delete => sessions.delete(),
-                Tap::Delete => {}
-                Tap::Open(name) => sessions.switch(name),
-            }
-            if matches!(tap, Tap::New | Tap::Rename) {
+        let Some(tap) = tap else { return };
+        // Any other tap cancels a delete.
+        let confirmed = mem::take(&mut self.confirm_delete);
+        match tap {
+            Tap::New => {
+                sessions.switch(&typed);
                 self.name.clear();
             }
-            self.confirm_delete = matches!(tap, Tap::Delete) && !self.confirm_delete;
+            Tap::Rename => {
+                sessions.rename(&typed);
+                self.name.clear();
+            }
+            Tap::Delete if confirmed => sessions.delete(),
+            Tap::Delete => self.confirm_delete = true,
+            Tap::Open(name) => sessions.switch(&name),
         }
     }
 }

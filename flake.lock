@@ -35,7 +35,8 @@
       "inputs": {
         "crane": "crane",
         "nixpkgs": "nixpkgs",
-        "rust-overlay": "rust-overlay"
+        "rust-overlay": "rust-overlay",
+        "tnoodle": "tnoodle"
       }
     },
     "rust-overlay": {
@@ -56,6 +57,18 @@
         "owner": "oxalica",
         "repo": "rust-overlay",
         "type": "github"
+      }
+    },
+    "tnoodle": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-vWVvpWnoplcjw/O+6366T6f0cvVlSzGatS1j33pknnM=",
+        "type": "file",
+        "url": "https://repo1.maven.org/maven2/org/worldcubeassociation/tnoodle/lib-scrambles/0.20.0/lib-scrambles-0.20.0-all.jar"
+      },
+      "original": {
+        "type": "file",
+        "url": "https://repo1.maven.org/maven2/org/worldcubeassociation/tnoodle/lib-scrambles/0.20.0/lib-scrambles-0.20.0-all.jar"
       }
     }
   },

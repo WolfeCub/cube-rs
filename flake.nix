@@ -6,6 +6,11 @@
     crane.url = "github:ipetkov/crane";
     rust-overlay.url = "github:oxalica/rust-overlay";
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
+    # tnoodle scramblers and their deps in one jar: dexed into the APK, and run in a host JVM by the tests.
+    tnoodle = {
+      url = "file+https://repo1.maven.org/maven2/org/worldcubeassociation/tnoodle/lib-scrambles/0.20.0/lib-scrambles-0.20.0-all.jar";
+      flake = false;
+    };
   };
 
   outputs = {
@@ -13,6 +18,7 @@
     nixpkgs,
     crane,
     rust-overlay,
+    tnoodle,
   }: let
     # The NDK only ships linux-x86_64 binaries.
     system = "x86_64-linux";
@@ -26,11 +32,8 @@
     };
     inherit (pkgs) lib jdk;
 
-    # Minimal; the dev shell adds the tools.
-    rust = p: p.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-    craneLib = (crane.mkLib pkgs).overrideToolchain rust;
-
     version = lib.fileContents ./VERSION;
+    # 1.2.3 -> 10203
     versionCode = lib.foldl (code: n: code * 100 + lib.toInt n) 0 (lib.splitString "." version);
 
     minSdk = "26";
@@ -43,35 +46,28 @@
         platformVersions = [targetSdk];
         buildToolsVersions = [buildTools];
         includeNDK = true;
-        ndkVersions = [ndk];
+        ndkVersion = ndk;
+        includeCmake = false;
+        toolsVersion = null;
       }).androidsdk;
     sdk = "${androidsdk}/libexec/android-sdk";
     bin = "${sdk}/build-tools/${buildTools}";
     androidJar = "${sdk}/platforms/android-${targetSdk}/android.jar";
+
+    # Minimal; the dev shell adds the tools.
+    toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+    craneLib = (crane.mkLib pkgs).overrideToolchain (_: toolchain);
+    common = {
+      src = craneLib.cleanCargoSource ./.;
+      strictDeps = true;
+    };
     linker = {
       CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = "${sdk}/ndk/${ndk}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${minSdk}-clang";
     };
 
-    maven = path: hash:
-      pkgs.fetchurl {
-        url = "https://repo1.maven.org/maven2/${path}";
-        inherit hash;
-      };
-    tnoodle = name: maven "org/worldcubeassociation/tnoodle/${name}/0.20.0/${name}-0.20.0.jar";
-    tnoodleJars = [
-      (tnoodle "lib-scrambles" "sha256-HgU8zmErJnxm2zAmUKVyX/sBgrFOZaw4C+pv1zGuBik=")
-      (tnoodle "lib-svglite" "sha256-N92xW/BmOz9aw30FH7oXFRtTG2yXKSVmllsfd3Y6Ezc=")
-      (tnoodle "scrambler-min2phase" "sha256-CrK4Lk7n/qyoeif3+BNDM0xzYTzlprdXkzQi64cURNs=")
-      (tnoodle "scrambler-threephase" "sha256-K36iph1XH6kbzjfJXIuFK5yjMdFmV9yAAi2OV4eXCMM=")
-      (tnoodle "scrambler-sq12phase" "sha256-39sSwbjv/Z5Kq35k6p2DQrXvbhzsjSKWQ03SZBQckd4=")
-      (tnoodle "scrambler-fto3phase" "sha256-Kt3pKiaQI/bH4YpHbrbLDKkOfhH1+FSOKxub5uhFJQE=")
-      (maven "org/timepedia/exporter/gwtexporter/2.5.1/gwtexporter-2.5.1.jar" "sha256-tHWD3QLUH0wDdlnXVzt5bdw+3cRMnv/FySXMkg3cPGQ=")
-      (maven "org/slf4j/slf4j-api/2.0.20/slf4j-api-2.0.20.jar" "sha256-fhRGSZs1lnXYqr5q8t6GuF5yrooqkywLQNDlulcJdDk=")
-    ];
-
-    common = {
-      src = craneLib.cleanCargoSource ./.;
-      strictDeps = true;
+    jvmEnv = {
+      JAVA_HOME = jdk.home;
+      TNOODLE_CLASSPATH = "${tnoodle}";
     };
 
     # libcube_rs.so
@@ -90,17 +86,26 @@
 
     # Unsigned; see `sign`.
     apk = pkgs.runCommand "cube-rs-${version}" {nativeBuildInputs = [jdk pkgs.zip];} ''
-      ${bin}/aapt2 compile --dir ${./res} -o res.zip
-      ${bin}/aapt2 link -o app.apk -I ${androidJar} --manifest ${./AndroidManifest.xml} -R res.zip \
+      PATH=${bin}:$PATH
+      aapt2 compile --dir ${./res} -o res.zip
+      aapt2 link -o app.apk -I ${androidJar} --manifest ${./AndroidManifest.xml} -R res.zip \
         --min-sdk-version ${minSdk} --target-sdk-version ${targetSdk} \
         --version-code ${toString versionCode} --version-name ${version}
-      ${bin}/d8 --release --min-api ${minSdk} --lib ${androidJar} --output . ${toString tnoodleJars}
+      # d8 needs the .jar extension.
+      ln -s ${tnoodle} tnoodle.jar
+      d8 --release --min-api ${minSdk} --lib ${androidJar} --output . tnoodle.jar
       install -D ${native}/lib/libcube_rs.so lib/arm64-v8a/libcube_rs.so
       find classes*.dex lib -exec touch -d @$SOURCE_DATE_EPOCH {} +
       zip -qrX app.apk classes*.dex lib
       mkdir $out
-      ${bin}/zipalign -P 16 -f 4 app.apk $out/cube-rs.apk
+      zipalign -P 16 -f 4 app.apk $out/cube-rs.apk
     '';
+
+    # Dev profile: no LTO or optimisation for tests.
+    test = let
+      args = common // jvmEnv // {CARGO_PROFILE = "dev";};
+    in
+      craneLib.cargoTest (args // {cargoArtifacts = craneLib.buildDepsOnly args;});
 
     # sign KEYSTORE OUT [apksigner options]. Prompts for the password unless --ks-pass is given.
     sign = pkgs.writeShellApplication {
@@ -144,17 +149,6 @@
       '';
     };
 
-    hostEnv = {
-      JAVA_HOME = jdk.home;
-      TNOODLE_CLASSPATH = lib.concatStringsSep ":" tnoodleJars;
-    };
-
-    # Dev profile: no LTO or optimisation for tests.
-    test = let
-      args = common // hostEnv // {CARGO_PROFILE = "dev";};
-    in
-      craneLib.cargoTest (args // {cargoArtifacts = craneLib.buildDepsOnly args;});
-
     # Everything CI builds, as one GC root for its cache. `inputs` keeps nixpkgs and the other sources.
     ci = pkgs.linkFarm "ci" {
       inherit apk test;
@@ -169,11 +163,11 @@
     checks.${system} = {inherit test;};
 
     devShells.${system}.default = pkgs.mkShell (linker
-      // hostEnv
+      // jvmEnv
       // {
         ANDROID_HOME = sdk;
         packages = [
-          ((rust pkgs).override {extensions = ["clippy" "rustfmt" "rust-src" "rust-analyzer"];})
+          (toolchain.override {extensions = ["clippy" "rustfmt" "rust-src" "rust-analyzer"];})
           jdk
           androidsdk
         ];

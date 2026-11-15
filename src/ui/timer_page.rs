@@ -2,11 +2,12 @@
 
 use super::sessions_page::SessionsPage;
 use super::solves_page::SolvesPage;
-use super::widgets::{Chevron, button, chip, cog, page_frame};
+use super::stats_page::StatsPage;
+use super::widgets::{button, chip, cog, page_frame, sessions_icon, stats};
 use super::{App, BG, BOTTOM_INSET, DIM, GREEN, MUTED, Page, RED, TEXT, TOP_INSET};
 use crate::session::{Penalty, Solve, Time};
 use crate::sys;
-use crate::timer::Timer;
+use crate::timer::{INSPECTION_NS, Timer, inspection_calls, inspection_penalty};
 use eframe::egui::{self, Align2, Color32, FontId, Frame, Image, RichText, Sense, Stroke, Vec2};
 
 const SCRAMBLE_URI: &str = "bytes://scramble.svg";
@@ -75,6 +76,17 @@ impl App {
             }
         });
         self.stop_questions(ui.ctx());
+        self.call_inspection();
+    }
+
+    /// Buzzes as each inspection call comes due: once at 8 s, twice at 12 s.
+    fn call_inspection(&mut self) {
+        let inspected = self.timer.inspected_ns(sys::boottime());
+        let calls = inspected.map_or(0, inspection_calls);
+        if calls > self.inspection_calls {
+            self.vibrator.buzz(calls);
+        }
+        self.inspection_calls = calls;
     }
 
     /// Takes the next scramble once the last one is used.
@@ -87,10 +99,14 @@ impl App {
         }
     }
 
-    pub(super) fn record(&mut self, solve: Option<u64>) {
-        if let Some(ms) = solve {
+    pub(super) fn record(&mut self, solve: Option<(u64, Penalty)>) {
+        if let Some((ms, penalty)) = solve {
             let scramble = self.scramble.take().map(|s| s.moves).unwrap_or_default();
-            self.sessions.current_mut().push(Solve::new(ms, scramble));
+            let solve = Solve {
+                penalty,
+                ..Solve::new(ms, scramble)
+            };
+            self.sessions.current_mut().push(solve);
             self.last_shown = true;
             self.ask_stop = true;
         }
@@ -108,7 +124,7 @@ impl App {
             return;
         }
         if down {
-            let solve = self.timer.press(sys::boottime());
+            let solve = self.timer.press(sys::boottime(), self.settings.inspection);
             self.record(solve);
         } else {
             self.timer.release(sys::boottime(), self.settings.hold_ns());
@@ -127,6 +143,19 @@ impl App {
             Timer::Holding { .. } => RED,
             _ => TEXT,
         };
+        // Inspection counts down the seconds left, then shows the penalty starting would get.
+        if let Some(ns) = self.timer.inspected_ns(now) {
+            let (text, late) = match inspection_penalty(ns) {
+                Penalty::None => (
+                    (INSPECTION_NS - ns).div_ceil(1_000_000_000).to_string(),
+                    false,
+                ),
+                Penalty::PlusTwo => ("+2".into(), true),
+                Penalty::Dnf => ("DNF".into(), true),
+            };
+            let color = if late && color == TEXT { RED } else { color };
+            return (text, color);
+        }
         (time.map_or("0.00".into(), |t| t.to_string()), color)
     }
 
@@ -221,7 +250,7 @@ impl App {
             }
             ui.vertical(|ui| {
                 self.stats(ui);
-                self.solves_chip(ui);
+                self.page_chips(ui);
             });
         });
         ui.add_space(BOTTOM_INSET);
@@ -229,23 +258,19 @@ impl App {
 
     fn stats(&self, ui: &mut egui::Ui) {
         let s = self.sessions.current();
-        let stats = [
-            ("best", s.best()),
-            ("ao5", s.average(5)),
-            ("ao12", s.average(12)),
-        ];
-        ui.columns(3, |cols| {
-            for (ui, (label, time)) in cols.iter_mut().zip(stats) {
-                ui.vertical_centered(|ui| {
-                    ui.label(RichText::new(label).size(14.0).color(MUTED));
-                    ui.label(RichText::new(time.map_or("-".into(), |t| t.to_string())).size(22.0));
-                });
-            }
-        });
+        let show = |time: Option<Time>| time.map_or("-".into(), |t| t.to_string());
+        stats(
+            ui,
+            &[
+                ("best", show(s.best())),
+                ("ao5", show(s.wca_average(5))),
+                ("ao12", show(s.wca_average(12))),
+            ],
+        );
     }
 
-    /// The number of solves, opening the solves page.
-    fn solves_chip(&mut self, ui: &mut egui::Ui) {
+    /// Chips opening the solves and stats pages, once there are solves.
+    fn page_chips(&mut self, ui: &mut egui::Ui) {
         let n = self.sessions.current().solves().len();
         if n == 0 {
             return;
@@ -256,9 +281,20 @@ impl App {
         } else {
             format!("{n} solves")
         };
-        let solves = ui.vertical_centered(|ui| chip(ui, &label, Chevron::Right));
-        if solves.inner.clicked() {
+        let chip_at = |ui: &mut egui::Ui, label: &str| {
+            ui.vertical_centered(|ui| chip(ui, label, 14.0, None))
+                .inner
+                .clicked()
+        };
+        let (mut solves, mut stats) = (false, false);
+        ui.columns(2, |cols| {
+            solves = chip_at(&mut cols[0], &label);
+            stats = chip_at(&mut cols[1], "Stats");
+        });
+        if solves {
             self.page = Page::Solves(SolvesPage::default());
+        } else if stats {
+            self.page = Page::Stats(StatsPage::new(self.sessions.current()));
         }
     }
 
@@ -272,7 +308,7 @@ impl App {
             .pivot(Align2::LEFT_CENTER)
             .fixed_pos(left)
             .show(ctx, |ui| {
-                if chip(ui, self.sessions.name(), Chevron::Down).clicked() {
+                if chip(ui, self.sessions.name(), 16.0, Some(sessions_icon)).clicked() {
                     self.page = Page::Sessions(SessionsPage::default());
                 }
             });

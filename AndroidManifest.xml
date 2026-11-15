@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
     <!-- Solve traces. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Inspection calls. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- hasCode loads classes.dex (TNoodle). Predictive back off, so back arrives as a key. -->
     <application

@@ -9,6 +9,7 @@ pub fn show(ui: &mut egui::Ui, s: &mut Settings) {
     title(ui, "Settings");
     ui.add_space(24.0);
 
+    choice(ui, "15 s inspection", &mut s.inspection, &on_off);
     choice(ui, "Slam to stop", &mut s.slam, &on_off);
     ui.add_enabled_ui(s.slam, |ui| {
         let caption = format!("Slam sensitivity: {}", SENSITIVITIES[s.sensitivity].0);

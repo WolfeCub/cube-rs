@@ -106,20 +106,56 @@ impl Session {
         self.solves.iter().map(Solve::time).min()
     }
 
-    /// WCA average of the last `n`: drop the best and worst 5% (rounded up), mean the rest.
-    pub fn average(&self, n: usize) -> Option<Time> {
-        let last = self.solves.get(self.solves.len().checked_sub(n)?..)?;
-        let mut times: Vec<Time> = last.iter().map(Solve::time).collect();
-        times.sort();
-        let trim = n.div_ceil(20);
-        let counted = &times[trim..n - trim];
-        let sum = counted.iter().try_fold(0, |sum, t| match t {
-            Time::Ms(ms) => Some(sum + ms),
-            Time::Dnf => None,
-        });
-        let len = counted.len() as u64;
-        Some(sum.map_or(Time::Dnf, |sum| Time::Ms((sum + len / 2) / len)))
+    /// The WCA average of the last `n`.
+    pub fn wca_average(&self, n: usize) -> Option<Time> {
+        self.wca_averages(n).next_back()
     }
+
+    /// The best WCA average of `n` in a row.
+    pub fn best_wca_average(&self, n: usize) -> Option<Time> {
+        self.wca_averages(n).min()
+    }
+
+    /// The WCA average of every `n` solves in a row, oldest first. `n` is 3 or more.
+    pub fn wca_averages(&self, n: usize) -> impl DoubleEndedIterator<Item = Time> {
+        self.solves.windows(n).map(wca_average_of)
+    }
+
+    /// The plain mean of the solves that aren't DNF.
+    pub fn mean(&self) -> Option<Time> {
+        let times: Vec<Time> = self
+            .solves
+            .iter()
+            .map(Solve::time)
+            .filter(|&t| t != Time::Dnf)
+            .collect();
+        (!times.is_empty()).then(|| mean(&times))
+    }
+}
+
+impl Time {
+    /// The time in ms, `None` for DNF.
+    pub fn ms(self) -> Option<u64> {
+        match self {
+            Time::Ms(ms) => Some(ms),
+            Time::Dnf => None,
+        }
+    }
+}
+
+/// WCA average of `solves`: drop the best and worst 5% (rounded up), mean the rest.
+fn wca_average_of(solves: &[Solve]) -> Time {
+    let mut times: Vec<Time> = solves.iter().map(Solve::time).collect();
+    times.sort_unstable();
+    let trim = times.len().div_ceil(20);
+    mean(&times[trim..times.len() - trim])
+}
+
+/// The mean of `times`, rounded to the ms. DNF if any is. `times` isn't empty.
+fn mean(times: &[Time]) -> Time {
+    let len = times.len() as u64;
+    let sum: Option<u64> = times.iter().map(|t| t.ms()).sum();
+    sum.map_or(Time::Dnf, |sum| Time::Ms((sum + len / 2) / len))
 }
 
 /// `9.87`, `1:02.34`. Truncated to hundredths like WCA singles.
@@ -162,8 +198,8 @@ mod tests {
             (9_000, ok),
             (20_000, ok),
         ]);
-        assert_eq!(s.average(5), Some(Time::Ms(11_000)));
-        assert_eq!(s.average(12), None);
+        assert_eq!(s.wca_average(5), Some(Time::Ms(11_000)));
+        assert_eq!(s.wca_average(12), None);
         assert_eq!(s.best(), Some(Time::Ms(9_000)));
 
         let s = session(&[
@@ -173,7 +209,7 @@ mod tests {
             (9_000, ok),
             (10_000, ok),
         ]);
-        assert_eq!(s.average(5), Some(Time::Ms(11_667)));
+        assert_eq!(s.wca_average(5), Some(Time::Ms(11_667)));
 
         let s = session(&[
             (10_000, Dnf),
@@ -182,7 +218,29 @@ mod tests {
             (9_000, ok),
             (10_000, ok),
         ]);
-        assert_eq!(s.average(5), Some(Time::Dnf));
+        assert_eq!(s.wca_average(5), Some(Time::Dnf));
+    }
+
+    #[test]
+    fn best_wca_average_and_mean() {
+        let ok = Penalty::None;
+        let s = session(&[
+            (20_000, ok),
+            (10_000, ok),
+            (11_000, ok),
+            (12_000, ok),
+            (13_000, Dnf),
+            (30_000, ok),
+            (14_000, ok),
+        ]);
+        let averages: Vec<Time> = s.wca_averages(5).collect();
+        let ms = Time::Ms;
+        assert_eq!(averages, [ms(14_333), ms(17_667), ms(18_667)]);
+        assert_eq!(s.best_wca_average(5), Some(ms(14_333)));
+        assert_eq!(s.wca_average(5), Some(ms(18_667)));
+        assert_eq!(s.best_wca_average(12), None);
+        assert_eq!(s.mean(), Some(ms(16_167)));
+        assert_eq!(session(&[(9_000, Dnf)]).mean(), None);
     }
 
     #[test]

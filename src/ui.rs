@@ -1,6 +1,7 @@
 mod sessions_page;
 mod settings_page;
 mod solves_page;
+mod stats_page;
 mod timer_page;
 mod widgets;
 
@@ -10,6 +11,7 @@ use crate::settings::Settings;
 use crate::timer::Timer;
 use crate::tnoodle::{Drawer, Scramble};
 use crate::trace::Tracer;
+use crate::vibrator::Vibrator;
 use eframe::egui::{self, Color32, Theme};
 use sessions_page::SessionsPage;
 use solves_page::SolvesPage;
@@ -38,6 +40,9 @@ pub struct App {
     /// The last solve is on screen, so it can be penalised or discarded.
     last_shown: bool,
     tracer: Tracer,
+    vibrator: Vibrator,
+    /// Inspection calls buzzed so far this inspection.
+    inspection_calls: usize,
     /// The stop questions haven't been answered for the last solve.
     ask_stop: bool,
     settings: Settings,
@@ -51,6 +56,7 @@ enum Page {
     Settings,
     Sessions(SessionsPage),
     Solves(SolvesPage),
+    Stats(stats_page::StatsPage),
 }
 
 impl App {
@@ -61,6 +67,7 @@ impl App {
         drawer: Drawer,
         sensors: Sensors,
         tracer: Tracer,
+        vibrator: Vibrator,
         data: PathBuf,
     ) -> Self {
         egui_extras::install_image_loaders(ctx);
@@ -83,6 +90,8 @@ impl App {
             down: false,
             last_shown: false,
             tracer,
+            vibrator,
+            inspection_calls: 0,
             ask_stop: false,
             settings,
             settings_path,
@@ -112,9 +121,11 @@ impl App {
         }
     }
 
-    /// Back: to the timer from another page. Does nothing on the timer.
+    /// Back: to the timer from another page. On the timer, it ends an inspection.
     fn back(&mut self, ctx: &egui::Context) {
-        if !matches!(self.page, Page::Timer) {
+        if matches!(self.page, Page::Timer) {
+            self.timer.cancel_inspection();
+        } else {
             self.page = Page::Timer;
             // Frees the solves page's scramble images.
             ctx.forget_all_images();
@@ -150,6 +161,9 @@ impl eframe::App for App {
             }
             Page::Solves(page) => {
                 panel.show(ui, |ui| page.show(ui, &self.sessions, &self.drawer));
+            }
+            Page::Stats(page) => {
+                panel.show(ui, |ui| page.show(ui, self.sessions.name()));
             }
         }
         self.settings_changed(&before);

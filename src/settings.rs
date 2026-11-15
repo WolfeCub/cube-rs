@@ -29,6 +29,9 @@ pub struct Settings {
     /// How long to hold before a release starts the timer.
     #[nserde(default = "300")]
     pub hold_ms: u64,
+    /// A tap starts 15 s of WCA inspection before the hold.
+    #[nserde(default = "false")]
+    pub inspection: bool,
     /// Save a trace of each solve. Needs the microphone permission.
     #[nserde(default = "false")]
     pub tracing: bool,
@@ -78,6 +81,7 @@ mod tests {
             slam: false,
             sensitivity: 4,
             hold_ms: 1000,
+            inspection: true,
             tracing: true,
             questions: true,
             session: "OH".into(),

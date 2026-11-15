@@ -148,15 +148,15 @@ impl Tracer {
         let mut save = None;
         match (before, timer) {
             _ if before == timer => return,
-            (_, Timer::Holding { since }) => {
+            (_, Timer::Holding { since, .. }) => {
                 // Cuts the last solve's tail short.
                 save = trace.finish();
                 trace.push(since, Record::Mark(Mark::Hold));
                 trace.listen(true);
             }
-            (Timer::Holding { .. }, Timer::Idle) => trace.listen(false),
-            (_, Timer::Running { start }) => trace.push(start, Record::Mark(Mark::Start)),
-            (Timer::Running { start }, Timer::Stopped { at }) => {
+            (Timer::Holding { .. }, Timer::Idle | Timer::Inspecting { .. }) => trace.listen(false),
+            (_, Timer::Running { start, .. }) => trace.push(start, Record::Mark(Mark::Start)),
+            (Timer::Running { start, .. }, Timer::Stopped { at }) => {
                 trace.push(at, Record::Mark(Mark::Stop));
                 if trace.enabled {
                     let secs = SystemTime::UNIX_EPOCH.elapsed().unwrap_or_default();
@@ -349,6 +349,7 @@ fn parse_line(line: &str) -> Option<(u64, Record)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::Penalty;
 
     const DOWN: Reading = Reading::Acceleration([0.0, 0.0, 9.81]);
 
@@ -362,9 +363,15 @@ mod tests {
             !tracer.audio(48_000, 0, &[1], None),
             "listening before a hold"
         );
-        tracer.timer(Timer::Holding { since: 3_000 * MS });
+        tracer.timer(Timer::Holding {
+            since: 3_000 * MS,
+            inspected: None,
+        });
         assert!(tracer.audio(48_000, 100, &[1, -2], Some((100, 3_200 * MS))));
-        tracer.timer(Timer::Running { start: 3_500 * MS });
+        tracer.timer(Timer::Running {
+            start: 3_500 * MS,
+            penalty: Penalty::None,
+        });
         tracer.reading(4_000 * MS, Reading::Rotation([0.0, 0.5, -1.25]));
         tracer.slam(7_000 * MS);
         tracer.timer(Timer::Stopped { at: 7_000 * MS });
@@ -417,7 +424,10 @@ mod tests {
     #[test]
     fn cancelled_hold_stops_listening() {
         let tracer = Tracer::new(std::env::temp_dir());
-        tracer.timer(Timer::Holding { since: 0 });
+        tracer.timer(Timer::Holding {
+            since: 0,
+            inspected: None,
+        });
         assert!(tracer.audio(48_000, 0, &[1], None));
         tracer.timer(Timer::Idle);
         assert!(!tracer.audio(48_000, 1, &[1], None));
@@ -426,10 +436,16 @@ mod tests {
     #[test]
     fn audio_timestamps_belong_to_their_audio() {
         let tracer = Tracer::new(std::env::temp_dir());
-        tracer.timer(Timer::Holding { since: 0 });
+        tracer.timer(Timer::Holding {
+            since: 0,
+            inspected: None,
+        });
         tracer.audio(48_000, 0, &[1], Some((0, 100 * MS)));
         tracer.timer(Timer::Idle);
-        tracer.timer(Timer::Holding { since: 200 * MS });
+        tracer.timer(Timer::Holding {
+            since: 200 * MS,
+            inspected: None,
+        });
         tracer.audio(48_000, 5_000, &[1], Some((5_000, 300 * MS)));
         let csv = parse(&tracer.lock().csv(0, u64::MAX));
         let stamps: Vec<_> = csv
@@ -444,12 +460,18 @@ mod tests {
         let dir = crate::test_path("off");
         let tracer = Tracer::new(dir.clone());
         tracer.set_enabled(false);
-        tracer.timer(Timer::Holding { since: 0 });
+        tracer.timer(Timer::Holding {
+            since: 0,
+            inspected: None,
+        });
         assert!(
             !tracer.audio(48_000, 0, &[1], None),
             "listening while disabled"
         );
-        tracer.timer(Timer::Running { start: 500 * MS });
+        tracer.timer(Timer::Running {
+            start: 500 * MS,
+            penalty: Penalty::None,
+        });
         tracer.timer(Timer::Stopped { at: 2_000 * MS });
         tracer.reading(4_000 * MS, DOWN);
         tracer.answer("right");

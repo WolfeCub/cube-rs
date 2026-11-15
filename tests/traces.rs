@@ -3,6 +3,7 @@
 //! this passes without checking anything when they're missing.
 
 use cube_rs::gesture::Detector;
+use cube_rs::session::Penalty;
 use cube_rs::timer::Timer;
 use cube_rs::trace::{Mark, Reading, Record, parse};
 use std::fs;
@@ -23,11 +24,14 @@ fn replay(csv: &str) -> (Option<u64>, u64) {
         match record {
             Record::Mark(Mark::Start) => {
                 start = t;
-                timer = Timer::Running { start: t };
+                timer = Timer::Running {
+                    start: t,
+                    penalty: Penalty::None,
+                };
             }
             Record::Mark(Mark::Stop) => stop = t,
             Record::Reading(Reading::Acceleration(a)) => {
-                if let Some(ms) = detector.acceleration(t, a).and_then(|t| timer.slam(t)) {
+                if let Some((ms, _)) = detector.acceleration(t, a).and_then(|t| timer.slam(t)) {
                     slam = Some(ms);
                 }
             }

@@ -1,12 +1,34 @@
 //! WCA scrambles from tnoodle-lib over JNI.
 
 use jni::errors::Result;
-use jni::objects::{JClassLoader, JObject, JString, JValue};
+use jni::objects::{JClassLoader, JMap, JString, JThread};
 use jni::refs::Global;
-use jni::strings::JNIStr;
-use jni::{Env, JavaVM, jni_sig, jni_str};
+use jni::{Env, JavaVM, bind_java_type};
 use std::sync::mpsc::{Receiver, Sender, channel, sync_channel};
 use std::thread;
+
+bind_java_type! {
+    PuzzleRegistry => org.worldcubeassociation.tnoodle.scrambles.PuzzleRegistry,
+    type_map = { Puzzle => org.worldcubeassociation.tnoodle.scrambles.Puzzle },
+    methods {
+        static fn value_of(name: JString) -> PuzzleRegistry,
+        fn get_scrambler() -> Puzzle,
+    },
+}
+
+bind_java_type! {
+    Puzzle => org.worldcubeassociation.tnoodle.scrambles.Puzzle,
+    type_map = { Svg => org.worldcubeassociation.tnoodle.svglite.Svg },
+    methods {
+        fn generate_scramble() -> JString,
+        fn draw_scramble(moves: JString, colors: java.util.Map) -> Svg,
+    },
+}
+
+bind_java_type! {
+    Svg => org.worldcubeassociation.tnoodle.svglite.Svg,
+    methods { fn text { sig = () -> JString, name = "toString" } },
+}
 
 pub struct Scramble {
     pub moves: String,
@@ -17,8 +39,8 @@ pub struct Scramble {
 /// tnoodle-lib in the process's JVM.
 #[derive(Clone, Copy)]
 pub struct Tnoodle {
-    /// Used instead of `FindClass`, which on Android native threads only sees system classes.
-    /// Leaked, like the JVM it belongs to.
+    /// The loader that sees tnoodle. Threads started from Rust only see system classes until
+    /// it's made their context class loader. Leaked, like the JVM it belongs to.
     class_loader: &'static Global<JClassLoader<'static>>,
 }
 
@@ -26,18 +48,7 @@ impl Tnoodle {
     /// The app's JVM, with tnoodle in classes.dex.
     #[cfg(target_os = "android")]
     pub fn android(app: &winit::platform::android::activity::AndroidApp) -> Self {
-        Self::new(|env| {
-            let activity = crate::android::activity(env, app);
-            let loader = env
-                .call_method(
-                    &activity,
-                    jni_str!("getClassLoader"),
-                    jni_sig!(() -> java.lang.ClassLoader),
-                    &[],
-                )?
-                .l()?;
-            env.cast_local::<JClassLoader>(loader)
-        })
+        Self::new(|env| crate::android::context(env, app)?.get_class_loader(env))
     }
 
     /// A new JVM with `TNOODLE_CLASSPATH`.
@@ -102,11 +113,14 @@ impl Tnoodle {
     }
 
     /// Runs `work` on a new thread with `puzzle`'s scrambler.
-    fn spawn(self, puzzle: &'static str, work: impl FnOnce(&JObject) + Send + 'static) {
+    fn spawn(self, puzzle: &'static str, work: impl FnOnce(&Puzzle) + Send + 'static) {
         thread::spawn(move || {
             let puzzle = vm()
                 .attach_current_thread(|env| {
-                    let puzzle = scrambler(env, self.class_loader, puzzle)?;
+                    JThread::current_thread(env)?
+                        .set_context_class_loader(env, self.class_loader)?;
+                    let name = JString::from_str(env, puzzle)?;
+                    let puzzle = PuzzleRegistry::value_of(env, &name)?.get_scrambler(env)?;
                     env.new_global_ref(puzzle)
                 })
                 .unwrap();
@@ -138,55 +152,17 @@ fn vm() -> JavaVM {
     JavaVM::singleton().unwrap()
 }
 
-fn scrambler<'a>(env: &mut Env<'a>, loader: &JClassLoader, puzzle: &str) -> Result<JObject<'a>> {
-    let name = env.new_string("org.worldcubeassociation.tnoodle.scrambles.PuzzleRegistry")?;
-    let registry = loader.load_class(env, name)?;
-    let puzzle = env.new_string(puzzle)?;
-    let entry = env
-        .call_static_method(
-            registry,
-            jni_str!("valueOf"),
-            jni_sig!((java.lang.String) -> org.worldcubeassociation.tnoodle.scrambles.PuzzleRegistry),
-            &[JValue::Object(&puzzle)],
-        )?
-        .l()?;
-    env.call_method(
-        &entry,
-        jni_str!("getScrambler"),
-        jni_sig!(() -> org.worldcubeassociation.tnoodle.scrambles.Puzzle),
-        &[],
-    )?
-    .l()
-}
-
-fn scramble(env: &mut Env, puzzle: &JObject) -> Result<Scramble> {
-    let moves = string(env, puzzle, jni_str!("generateScramble"))?;
+fn scramble(env: &mut Env, puzzle: &Puzzle) -> Result<Scramble> {
+    let moves = puzzle.generate_scramble(env)?.try_to_string(env)?;
     let svg = draw(env, puzzle, &moves)?;
     Ok(Scramble { moves, svg })
 }
 
 /// `moves` applied to `puzzle`, as an SVG in tnoodle's default colors.
-fn draw(env: &mut Env, puzzle: &JObject, moves: &str) -> Result<String> {
-    let moves = env.new_string(moves)?;
-    let svg = env
-        .call_method(
-            puzzle,
-            jni_str!("drawScramble"),
-            jni_sig!(
-                (java.lang.String, java.util.Map) -> org.worldcubeassociation.tnoodle.svglite.Svg
-            ),
-            &[JValue::Object(&moves), JValue::Object(&JObject::null())],
-        )?
-        .l()?;
-    string(env, &svg, jni_str!("toString"))
-}
-
-/// Calls `obj.method()`, which returns a string.
-fn string(env: &mut Env, obj: &JObject, method: &JNIStr) -> Result<String> {
-    let s = env
-        .call_method(obj, method, jni_sig!(() -> java.lang.String), &[])?
-        .l()?;
-    env.cast_local::<JString>(s)?.try_to_string(env)
+fn draw(env: &mut Env, puzzle: &Puzzle, moves: &str) -> Result<String> {
+    let moves = JString::from_str(env, moves)?;
+    let svg = puzzle.draw_scramble(env, &moves, JMap::null())?;
+    svg.text(env)?.try_to_string(env)
 }
 
 #[cfg(test)]

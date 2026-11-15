@@ -2,7 +2,8 @@
 
 use super::{BG, CHIP, MUTED, TEXT, TOP_INSET};
 use eframe::egui::{
-    self, Button, FontId, Frame, Margin, RichText, Sense, Stroke, Vec2, pos2, vec2,
+    self, Button, FontId, Frame, Margin, Painter, Pos2, Rect, RichText, Sense, Stroke, StrokeKind,
+    Vec2, pos2, vec2,
 };
 
 /// A page's frame: the background and side margins.
@@ -14,6 +15,18 @@ pub fn page_frame() -> Frame {
 pub fn title(ui: &mut egui::Ui, text: &str) {
     ui.add_space(TOP_INSET);
     ui.vertical_centered(|ui| ui.label(RichText::new(text).size(28.0)));
+}
+
+/// Labelled values side by side, each label small above its value.
+pub fn stats(ui: &mut egui::Ui, stats: &[(&str, String)]) {
+    ui.columns(stats.len(), |cols| {
+        for (ui, (label, value)) in cols.iter_mut().zip(stats) {
+            ui.vertical_centered(|ui| {
+                ui.label(RichText::new(*label).size(14.0).color(MUTED));
+                ui.label(RichText::new(value).size(22.0));
+            });
+        }
+    });
 }
 
 pub fn button(ui: &mut egui::Ui, label: &str, selected: bool) -> bool {
@@ -41,32 +54,41 @@ pub fn choice<T: PartialEq + Copy>(
     ui.add_space(16.0);
 }
 
-pub enum Chevron {
-    /// Picks from a list.
-    Down,
-    /// Opens a page.
-    Right,
-}
+/// An icon's width in a chip.
+const ICON: f32 = 14.0;
 
-/// Tappable text in a rounded box, with a chevron after it.
-pub fn chip(ui: &mut egui::Ui, text: &str, chevron: Chevron) -> egui::Response {
+/// Tappable text `font` points high in a rounded box, after `icon` if given.
+pub fn chip(
+    ui: &mut egui::Ui,
+    text: &str,
+    font: f32,
+    icon: Option<fn(&Painter, Pos2)>,
+) -> egui::Response {
     let text = ui
         .painter()
-        .layout_no_wrap(text.into(), FontId::proportional(16.0), TEXT);
-    let pad = vec2(14.0, 7.0);
-    let size = text.size() + vec2(3.0 * pad.x, 2.0 * pad.y);
+        .layout_no_wrap(text.into(), FontId::proportional(font), TEXT);
+    let pad = font * vec2(0.875, 0.4375);
+    let icon_width = icon.map_or(0.0, |_| ICON + pad.y);
+    let size = text.size() + vec2(2.0 * pad.x + icon_width, 2.0 * pad.y);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let painter = ui.painter();
     painter.rect_filled(rect, rect.height() / 2.0, CHIP);
-    let text_at = rect.left_center() + vec2(pad.x, -text.size().y / 2.0);
+    let left = rect.left() + pad.x;
+    if let Some(icon) = icon {
+        icon(painter, pos2(left + ICON / 2.0, rect.center().y));
+    }
+    let text_at = pos2(left + icon_width, rect.center().y - text.size().y / 2.0);
     painter.galley(text_at, text, TEXT);
-    let c = pos2(rect.right() - pad.x, rect.center().y);
-    let points = match chevron {
-        Chevron::Down => [vec2(-4.0, -2.0), vec2(0.0, 2.0), vec2(4.0, -2.0)],
-        Chevron::Right => [vec2(-2.0, -4.0), vec2(2.0, 0.0), vec2(-2.0, 4.0)],
-    };
-    painter.line(points.map(|p| c + p).to_vec(), Stroke::new(2.0, MUTED));
     response
+}
+
+/// Two overlapping squares, for sessions: the front one hides the back one's corner.
+pub fn sessions_icon(painter: &Painter, c: Pos2) {
+    let stroke = Stroke::new(1.5, MUTED);
+    let square = |offset| Rect::from_center_size(c + Vec2::splat(offset), Vec2::splat(9.0));
+    painter.rect_stroke(square(-2.0), 2.0, stroke, StrokeKind::Middle);
+    painter.rect_filled(square(2.0), 2.0, CHIP);
+    painter.rect_stroke(square(2.0), 2.0, stroke, StrokeKind::Middle);
 }
 
 /// A tappable cog.

@@ -17,6 +17,8 @@ mod sensors;
 mod sys;
 #[cfg(target_os = "android")]
 mod ui;
+#[cfg(target_os = "android")]
+mod vibrator;
 
 /// A temp path for test `name` with nothing at it.
 #[cfg(test)]

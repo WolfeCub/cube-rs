@@ -15,9 +15,12 @@
 
 - **Touch timing**: hold until the time turns green, release to start, touch to stop
 - **Slam to stop**: with the phone flat on a table, slam the table next to it
+- **WCA inspection**, optional: 15 s with +2 and DNF penalties, vibrating at 8 s and 12 s
 - **Official WCA scrambles**, with a picture of the scrambled cube
-- **Stats**: best, ao5 and ao12
+- **Sessions**: named, saved across restarts, each with a list of its solves and scrambles
+- **Stats**: mean, best and current ao5 to ao1000, and a graph of times
 - **Penalties**: mark the last solve OK, +2 or DNF, or discard it
+- **Settings**: slam sensitivity, hold time, inspection and solve traces
 
 ### Tech stack
 
